@@ -63,6 +63,31 @@ class ParticleSwarmOptimization:
     def initialize_particles(self):
         goal = self.goal
         # goal = torch.tensor([end.x, end.y])
+        #initial_position_xrange = [self.position[0] - sensor_range, self.position[0] + sensor_range]
+        #initial_position_yrange = [self.position[1] - sensor_range, self.position[1] + sensor_range]
+
+        top_left = [self.initial_position_xrange[0], self.initial_position_yrange[0]]
+        bottom_left = [self.initial_position_xrange[0], self.initial_position_yrange[1]]
+
+        top_right = [self.initial_position_xrange[1], self.initial_position_yrange[0]]
+        bottom_right = [self.initial_position_xrange[1], self.initial_position_yrange[1]]
+
+        corners = [top_left, bottom_left, top_right, bottom_right]
+        for cpos in corners:
+            position = cpos
+            if particle_pos_valid(position, self.robot_pos, self.map):
+                velocity = self.random_number_generator.uniform(self.initial_velocity_range[0],
+                                                                self.initial_velocity_range[1],
+                                                                self.number_of_dimensions)
+                position = torch.tensor(position)
+                velocity = torch.tensor(velocity)
+                best_position = position
+
+                best_value = self.function(position, self.goal, self.robot_pos)
+                particle = Particle(position, velocity, best_position, best_value, self.inertia_weight,
+                                    self.acceleration_coefficients, self.random_number_generator)
+                self.particles.append(particle)
+
         for i in range(self.number_of_particles):
             xpos = self.random_number_generator.uniform(self.initial_position_xrange[0],
                                                         self.initial_position_xrange[1])
@@ -99,9 +124,10 @@ class ParticleSwarmOptimization:
         self.initialize_particles()
         self.update_global_best_position()
         use_subgoals = False
+        stag_ctr = 0
         for i in range(self.number_of_iterations):
             tmp_best_val = self.global_best_value
-            tmp_best_pos = self.global_best_position
+            tmp_best_pos = self.global_best_position.clone().detach().to(dtype=torch.float64)#torch.tensor(, dtype=torch.float64)
             # part_pos = torch.vstack([p.position for p in self.particles])
             # values = opt_func_vec(part_pos, self.goal, self.robot_pos)
             for idx, particle in enumerate(self.particles):
@@ -129,10 +155,14 @@ class ParticleSwarmOptimization:
                     particle.best_position = particle.position
             # self.global_iteration_ctr = self.global_iteration_ctr + 1
             self.update_global_best_position()
+            gbp = self.global_best_position.clone().detach().to(dtype=torch.float64)#torch.tensor(, dtype=torch.float64)
+            if torch.equal(tmp_best_pos, gbp):
+                if stag_ctr == 4:
+                    break
+                stag_ctr += 1
 
-        # Return true only if:
 
-
+# Return true only if:
 # 1. the position is within the map bounds
 # 2. the position is not inside an obstacle
 # 3. the line connecting robot_pos to position does not intersect an obstacle
@@ -147,6 +177,9 @@ def particle_pos_valid(position, robot_pos, map):
         # print("INVALID: OOB")
         return False
     nearest_node = get_nearest(position, map)
+    rob_nearest = get_nearest(robot_pos, map)
+    if nearest_node == rob_nearest:
+        return False
     # print(f'NEAREST POS: {nearest_node.x}, {nearest_node.y}')
     obstacles = ['@', 'O', 'T']
     if nearest_node.terrain in obstacles:
@@ -154,6 +187,8 @@ def particle_pos_valid(position, robot_pos, map):
         return False
     p1 = Point(robot_pos[0], robot_pos[1])
     p2 = Point(x, y)
+    if p1.equals(p2):
+        return False
     # Construct a line from the robot's position to the particle's position
     l1 = Line(p1, p2)
     all_nearby = nearest_node.get_all_adjacent(map)
@@ -206,9 +241,12 @@ def get_nearest(point, map):
 
 
 def opt_func(point, goal, robot_pos):
+    p1_scale = 0.0
+    p2_scale = 1.0
     p1 = np.linalg.norm(point - robot_pos)
     p2 = np.linalg.norm(goal - point)
-    return p1 + p2
+
+    return (p1_scale*p1) + (p2_scale*p2)
 
 
 def opt_func_vec(particles, goal, robot_pos):
@@ -220,6 +258,7 @@ def opt_func_vec(particles, goal, robot_pos):
 class Robot:
     def __init__(self, position, goal, speed_limit, sense_dist, num_particles, map_file):
         self.position = position
+        self.start_pos = position
         self.velocity = torch.tensor([0, 0])
         self.goal = goal
         self.use_subgoal = False
@@ -232,7 +271,7 @@ class Robot:
         self.distance = 0
         self.path = []
 
-    def search(self, display_map=True):
+    def search(self, display_map=True, display_steps=False):
         num_total_steps = 4000
         num_subgoal_steps = 14
         subgoal_ctr = 0
@@ -248,7 +287,7 @@ class Robot:
         obstacles = ['@', 'O', 'T']
         curr_map_nums = np.copy(map_nums)
         for i in tqdm(range(num_total_steps)):
-            # curr_map_nums = np.copy(map_nums)
+            #curr_map_nums = np.copy(map_nums)
 
             if subgoal_ctr >= num_subgoal_steps:
                 if self.subgoal is not None:
@@ -268,11 +307,12 @@ class Robot:
                 subgoal_ctr = subgoal_ctr + 1
             # The PSO particles are generated randomly around the current position of the robot and within its sensing range (i.e. search space)
             number_of_dimensions = 2
-            number_of_iterations = 10
+            number_of_iterations = 40
             sensor_range = 2.0
             initial_position_xrange = [self.position[0] - sensor_range, self.position[0] + sensor_range]
             initial_position_yrange = [self.position[1] - sensor_range, self.position[1] + sensor_range]
-            initial_velocity_range = [-2, 2]
+            initial_velocity_range = [-3, 3]
+            #initial_velocity_range = [-2, 2]
             # inertia weight (w) determines how much the velocity of a particle at time t
             # influences the velocity at time t + 1 (exploration vs. exploitation)
             inertia_weight = 0.5
@@ -288,7 +328,7 @@ class Robot:
 
             pso.optimize()
 
-            # print(f'best position: {pso.global_best_position}')
+            #print(f'best position: {pso.global_best_position}')
             # print(f'best value: {pso.global_best_value}')
 
             last_pos = self.position
@@ -297,12 +337,13 @@ class Robot:
             best_node = get_nearest(pso.global_best_position, self.map)
             curr_x = self.position[0]
             curr_y = self.position[1]
+            #print(f"{curr_x}, {curr_y}")
+            #print(goal)
 
             best_x = best_node.x
             best_y = best_node.y
 
             curr_node = get_nearest(self.position, self.map)
-            curr_map_nums[curr_node.y][curr_node.x] = 4
 
             move_options = curr_node.get_adjacent_nodes(self.map)
             self.path.append(curr_node)
@@ -351,7 +392,7 @@ class Robot:
                             self.position = torch.tensor([last_pos_node.x, last_pos_node.y])
                             subgoal_ctr = num_subgoal_steps
 
-            display_steps = False
+            # display_steps = False
 
             if display_steps:
                 if i % 1 == 0:
@@ -363,22 +404,22 @@ class Robot:
                     plt.show()
 
             if torch.equal(self.position, self.goal):
-                print(f'goal reached after {i} search steps.')
+                print(f'\n\nGoal reached after {i} search steps.')
                 break
+
+        path_length = len(self.path)
 
         if display_map:
             # Display the map
             map_nums = read_map_nums(self.map_file)
-
-            path_length = 0
             # Display the path taken
             for node in self.path:
-                path_length = path_length + 1
                 x = node.y  # row..
                 y = node.x  # column...?
                 map_nums[x][y] = 4
             print(f"Path Length: {path_length}")
-
+            map_nums[self.start_pos[1]][self.start_pos[0]] = 10
+            map_nums[self.goal[1]][self.goal[0]] = 10
             map_name_no_path = os.path.basename(self.map_file)
 
             figure_title = f"PSO: {map_name_no_path}\nLength: {path_length}"
