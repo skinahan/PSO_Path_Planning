@@ -10,13 +10,13 @@ import torch
 import csv
 
 
-@timeout(300)
+@timeout(600)
 def search_all(robots):
     path_lengths = []
     for robot in robots:
-        print(f"\n\nMap: {robot.map_file}")
-        print(f"Start Pos: {robot.position}")
-        print(f"End Pos: {robot.goal}\n\n")
+        #print(f"\n\nMap: {robot.map_file}")
+        #print(f"Start Pos: {robot.position}")
+        #print(f"End Pos: {robot.goal}\n\n")
         r_length = robot.search(display_map=False)
         path_lengths.append(r_length)
     return path_lengths
@@ -24,7 +24,7 @@ def search_all(robots):
 
 def run_scenario(scen_cl):
     # Time limit: 5 minutes (300 seconds)
-    t_lim = 300
+    t_lim = 600
     num_scenarios = scen_cl.get_scenario_count()
     map_file_root = './mapf-map/'
     timed_out_searching = False
@@ -37,10 +37,12 @@ def run_scenario(scen_cl):
             robots = []
             start_pos = scen_cl.get_scenario_start(scenario_number=k)
             map_width = scen_cl.get_scenario_map_width(scenario_number=k)
-            if map_width >= 250:
-                r_speed_lim = 5
+            if map_width >= 32:
+                r_speed_lim = 3
+                sense_dist = 3
             else:
                 r_speed_lim = 1
+                sense_dist = 1
             goal_pos = scen_cl.get_scenario_goal(scenario_number=k)
             map_file = scen_cl.get_scenario_map_string(scenario_number=k)
             map_file = os.path.join(map_file_root, map_file)
@@ -95,13 +97,6 @@ def run_scenarios():
         with open(out_csv_path, 'w') as csv_file:
             writer_obj = csv.writer(csv_file)
             writer_obj.writerow([scen_base_name, num_agents])
-        out_csv2_name = f'{scen_base_name}_paths.csv'
-        out_csv2_path = os.path.join(output_file_root, out_csv2_name)
-        with open(out_csv2_path, 'w') as csv_file:
-            writer_obj = csv.writer(csv_file)
-            for path_arr in path_lens:
-                row = [scen_base_name].extend([str(x) for x in path_arr])
-                writer_obj.writerow(row)
 
 
 def main():

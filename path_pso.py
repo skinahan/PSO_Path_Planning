@@ -529,7 +529,7 @@ class Robot:
                     plt.show()
 
             if torch.equal(self.position, self.goal):
-                print(f'\n\nGoal reached after {i} search steps.')
+                #print(f'\n\nGoal reached after {i} search steps.')
                 break
 
         path_length = len(self.path)
