@@ -13,7 +13,7 @@ from IPython import display
 import time
 
 from mapf_map import *
-
+import copy
 
 class Particle:
     def __init__(self, position, velocity, best_position, best_value, inertia_weight, acceleration_coefficients,
@@ -404,13 +404,18 @@ class Robot:
         goal = self.goal
         pause_time = 0.2
         # seconds between frames
+        goal_reached = False
+        map_backup = read_map(self.map_file)
 
         # Display the map
         # map_file = './mapf-map/Berlin_1_256.map'
-        map_nums = read_map_nums(self.map_file)
+        if display_map:
+            map_nums = read_map_nums(self.map_file)
+            if display_steps:
+                curr_map_nums = np.copy(map_nums)
 
         obstacles = ['@', 'O', 'T']
-        curr_map_nums = np.copy(map_nums)
+
         for i in tqdm(range(num_total_steps)):
             # curr_map_nums = np.copy(map_nums)
 
@@ -433,10 +438,10 @@ class Robot:
             # The PSO particles are generated randomly around the current position of the robot and within its sensing range (i.e. search space)
             number_of_dimensions = 2
             number_of_iterations = 40
-            sensor_range = 2.0
+            sensor_range = self.sense_dist
             initial_position_xrange = [self.position[0] - sensor_range, self.position[0] + sensor_range]
             initial_position_yrange = [self.position[1] - sensor_range, self.position[1] + sensor_range]
-            initial_velocity_range = [-3, 3]
+            initial_velocity_range = [-2, 2]
             # initial_velocity_range = [-2, 2]
             # inertia weight (w) determines how much the velocity of a particle at time t
             # influences the velocity at time t + 1 (exploration vs. exploitation)
@@ -506,12 +511,14 @@ class Robot:
                         curr_node.previous = None
                         a_star(self.map, curr_node, subgoal)
                         sub_path = backtrack(subgoal)
-                        self.map = read_map(self.map_file)
+                        #self.map = read_map(self.map_file)
+                        self.map = copy.deepcopy(map_backup)
                         for node in sub_path:
                             self.path.append(node)
                             x = node.y
                             y = node.x
-                            curr_map_nums[x][y] = 5
+                            if display_steps:
+                                curr_map_nums[x][y] = 5
                         last_pos_node = sub_path[-1]
                         if not last_pos_node.terrain in obstacles:
                             self.position = torch.tensor([last_pos_node.x, last_pos_node.y])
@@ -530,6 +537,7 @@ class Robot:
 
             if torch.equal(self.position, self.goal):
                 #print(f'\n\nGoal reached after {i} search steps.')
+                goal_reached = True
                 break
 
         path_length = len(self.path)
@@ -553,7 +561,7 @@ class Robot:
             plt.suptitle(figure_title)
             plt.imshow(map_nums)
             plt.show()
-        return path_length
+        return path_length, goal_reached
 
 
 def get_perpendicular_subgoal(start, goal, dist, map):
